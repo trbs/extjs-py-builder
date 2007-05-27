@@ -10,10 +10,30 @@ of ext-all.js, which in turn requires Java.
     
 version history:
   0.1: first public version (April 6, 2007)
-  0.2: intermediated release, fixes to much to list here
+  0.2: added options and jsmin, fallback on elementtree (April 14, 2007)
+  0.3: reduced size by running rhino compressor on source files
+  0.4: intermediated release, fixes to much to list here
+  
+todo today:
+  * restyle entire app
+  * reintroduce OptionParser
+  * add setup.py (and make it a normal unix project)
+  * add output path (destination directory for build)
+  * add clean option (cleans a build directory)
+  * add support for jsdoc (see imported jsdoc source) (check for perl's HTML/Template.pm module)
+  * add support for dynamic compression/mimification options
+    - 3 methods: jsmin, rhino/dojocompressor, jspacker
+    - use OptionParser to dynamicly switch then on and off, also add options to switch between
+      at-the-end and on-every-file. like -j -jj -J (respectivly: jsmin, jsmin-every-file, no-jsmin)
+    - use profiles:
+	- default;  only jsmin the end result. (fasted but less packing)
+	- compress; use rhino and jsmin on end result. (slower but smaller sizes)
+	- tight;    use rhino and jsmin on every file and end result. (very slow, even smaller size)
+	- pack;	    same as compress but also runs jspacker on and result. (very small, but dangeous)
+
 """
 
-__version__ = "0.2"
+__version__ = "0.4"
 
 import os
 import sys
