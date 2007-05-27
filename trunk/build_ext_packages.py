@@ -13,10 +13,10 @@ version history:
   0.2: added options and jsmin, fallback on elementtree (April 14, 2007)
   0.3: reduced size by running rhino compressor on source files
   0.4: intermediated release, fixes to much to list here
+  0.5: added options again, more error messages
   
 todo today:
   * restyle entire app
-  * reintroduce OptionParser
   * add setup.py (and make it a normal unix project)
   * add output path (destination directory for build)
   * add clean option (cleans a build directory)
@@ -40,17 +40,24 @@ import sys
 import shutil
 import tempfile
 from os.path import join as _j
-from StringIO import StringIO
+from optparse import OptionParser
+try:
+    from StringIO import StringIO
+except ImportError:
+    try:
+        from cStringIO import StringIO
+    except ImportError:
+        print "StringIO not found; u need either StringIO or cStringIO"
 try:
     from cElementTree import ElementTree as ET
     cet = True
 except ImportError:
     try:
-	from elementtree import ElementTree as ET
+        from elementtree import ElementTree as ET
         cet = False
     except ImportError:
-	print "ElementTree not found; u need ElementTree of cElementTree to run this script."
-	sys.exit(1)
+        print "ElementTree not found; u need ElementTree of cElementTree to run this script."
+        sys.exit(1)
 
 """ included jsmin, see http://www.crockford.com/javascript/jsmin.py.txt """
 def jsmin(js):
@@ -244,46 +251,93 @@ def process_jsb(fname, output_dir):
         dirname = os.path.dirname(output)
         if dirname and not os.path.exists(dirname): os.makedirs(dirname)
         files = [file.attrib['name'] for file in package.findall("include")]
-	p = lambda file: _j(rootdir, file).replace('\\', '/')
-        all = '\n'.join(open(p(file)).read() for file in files if os.path.isfile(p(file)))
+        p = lambda file: _j(rootdir, file).replace('\\', '/')
+        if options.no_continue:
+            all = '\n'.join(open(p(file)).read() for file in files)
+        else:
+            all = '\n'.join(open(p(file)).read() for file in files if os.path.isfile(p(file)))
         open(output, 'w').write(all)
     print
-    
-if len(sys.argv) < 2:
-    print "Usage: %s <root_of_ext_svn_dir>" % sys.argv[0]
-    sys.exit(0)
-    
-ext_root = sys.argv[1]
-old_cwd = os.getcwd()
-try:
-    os.chdir(ext_root)
-    process_jsb("src/ext.jsb", '.')
-    process_jsb("resources/resources.jsb", 'resources')
-    os.rename("ext-all.js", "ext-all-debug.js")
-    print "Minifying ext-all.js using ShrinkSafe:",
-    sys.stdout.flush()
-    retval = os.system("java -jar custom_rhino.jar -opt -1 -c ext-all-debug.js > ext-all.js")
-    if retval != 0:
-        print "..Couldn't create the compressed ext-all.js"
-        print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
-        print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
-	shutil.copy("ext-all-debug.js", "ext-all.js")
-    else:
-        print "done."
-    print "Minifying ext-all.js using jsmin:",
-    sys.stdout.flush()
-    try:
-        f = open("ext-all.js")
-        data = f.read()
-        f.close()
-        f = open("ext-all.js", "wb")
-        f.write(jsmin(data))
-        f.close()
-    except Exception, e:
-	print "error in jsmin:", e
-	open("ext-all.js", "wb").write(data)
-    else:
-	print "done."
-finally:
-    os.chdir(old_cwd)
 
+def main(ext_root, options):
+    if not os.path.isfile(_j(ext_root, "src", "ext.jsb")):
+        print "Target directory is not a ExtJS svn checkout directory"
+        sys.exit(1)
+    old_cwd = os.getcwd()
+    try:
+        try:
+            os.chdir(ext_root)
+            process_jsb("src/ext.jsb", '.')
+            process_jsb("resources/resources.jsb", 'resources')
+            os.rename("ext-all.js", "ext-all-debug.js")
+            if options.shrinksafe:
+                print "Minifying ext-all.js using ShrinkSafe:",
+                sys.stdout.flush()
+                retval = os.system("java -jar custom_rhino.jar -opt -1 -c ext-all-debug.js > ext-all.js")
+                if retval != 0:
+                    print "..Couldn't create the compressed ext-all.js"
+                    print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
+                    print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
+                    shutil.copy("ext-all-debug.js", "ext-all.js")
+                else:
+                    print "done."
+            if options.jsmin:
+                print "Minifying ext-all.js using jsmin:",
+                sys.stdout.flush()
+                try:
+                    f = open("ext-all.js")
+                    data = f.read()
+                    f.close()
+                    f = open("ext-all.js", "wb")
+                    f.write(jsmin(data))
+                    f.close()
+                except Exception, e:
+                    print "error in jsmin:", e
+                    open("ext-all.js", "wb").write(data)
+                else:
+                    print "done."
+        except Exception, e:
+            print "Buiding Failed"
+            raise e
+        else:
+            print "Buiding Completed"
+    finally:
+        os.chdir(old_cwd)
+
+def found_on_classpath(jar):
+    for path in os.environ.get("CLASSPATH", "").split(";"):
+        if path and jar in os.listdir(os.path.abspath(path)):
+            return True
+    return False
+
+if __name__=="__main__":
+    usage = "%prog [options] <root_of_ext_svn_dir>"
+    parser = OptionParser(usage=usage, version=__version__)
+    parser.add_option("-s", "--shrinksafe", action="store_true", dest="shrinksafe",
+    					default=True, help="Use shrinksafe for packing ext-all.js")
+    parser.add_option("-S", "--no-shrinksafe", action="store_false", dest="shrinksafe",
+    					help="Disable shrinksafe")
+    #parser.add_option("-o", "--shrinksafe-opt", action="store", type="string", dest="shrinkopt",
+    #					default=-1, help="ShrinkSafe optimalization level")
+    parser.add_option("-j", "--jsmin", action="store_true", dest="jsmin",
+    					default=True, help="Use jsmin to minifie ext-all.js")
+    parser.add_option("-J", "--no-jsmin", action="store_false", dest="jsmin",
+    					help="Disable jsmin")
+    parser.add_option("-C", "--no-continue", action="store_true", dest="no_continue",
+    					default=False, help="Do not continue building if file(s) do not exist.")
+    parser.add_option("-f", "--force", action="store_true", dest="force",
+       					default=False, help="Force build, keep running even if options fail.")
+    
+    global options
+    (options, args) = parser.parse_args()
+    if len(args)!=1:
+        parser.print_help()
+        sys.exit(0)
+    if options.shrinksafe:
+        rhino = "custom_rhino.jar"
+        if not os.path.isfile(rhino) or not found_on_classpath(rhino):
+            print "..Failed to find custom_rhine.jar."
+            print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
+            print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
+            sys.exit(1)
+    main(args[0], options)
