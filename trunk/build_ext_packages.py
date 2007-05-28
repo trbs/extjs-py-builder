@@ -755,7 +755,7 @@ def main(ext_root, options):
             os.chdir(ext_root)
             process_jsb("src/ext.jsb", '.')
             process_jsb("resources/resources.jsb", 'resources')
-            os.rename("ext-all.js", "ext-all-debug.js")
+	    shutil.copy("ext-all.js", "ext-all-debug.js")
             if options.shrinksafe:
                 print "Minifying ext-all.js using ShrinkSafe:",
                 sys.stdout.flush()
