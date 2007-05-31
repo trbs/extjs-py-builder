@@ -842,8 +842,13 @@ if __name__=="__main__":
     if options.shrinksafe:
         rhino = "custom_rhino.jar"
         if not os.path.isfile(rhino) or not found_on_classpath(rhino):
-            print "..Failed to find custom_rhine.jar."
-            print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
-            print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
-            sys.exit(1)
+	    if options.no_continue:
+        	print "..Failed to find custom_rhine.jar."
+    		print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
+    		print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
+    	        sys.exit(1)
+	    else:
+        	print "Failed to find custom_rhine.jar. Disabling ShrinkSafe"
+		options.shrinksafe = False
+		
     main(args[0], options)
