@@ -55,7 +55,7 @@ try:
     cet = True
 except ImportError:
     try:
-        from elementtree import ElementTree as ET
+        from elementtree.ElementTree import ElementTree as ET
         cet = False
     except ImportError:
         print "ElementTree not found; u need ElementTree of cElementTree to run this script."
@@ -739,9 +739,9 @@ def process_jsb(fname, output_dir):
         files = [file.attrib['name'] for file in package.findall("include")]
         p = lambda file: _j(rootdir, file).replace('\\', '/')
         if options.no_continue:
-            all = '\n'.join(open(p(file)).read() for file in files)
+            all = '\n'.join([open(p(file)).read() for file in files])
         else:
-            all = '\n'.join(open(p(file)).read() for file in files if os.path.isfile(p(file)))
+            all = '\n'.join([open(p(file)).read() for file in files if os.path.isfile(p(file))])
         open(output, 'w').write(all)
     print
 
@@ -800,7 +800,7 @@ def main(ext_root, options):
                     print "done."                
         except Exception, e:
             print "Buiding Failed"
-            raise e
+            raise Exception(e)
         else:
             print "Buiding Completed"
     finally:
