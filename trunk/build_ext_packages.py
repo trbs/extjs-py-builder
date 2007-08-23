@@ -15,9 +15,11 @@ version history:
   0.4: intermediated release, fixes to much to list here
   0.5: added options again, more error messages
   0.6: added jspacker
+  0.7: fix for python2.3
   
 todo today:
   * restyle entire app
+  * add new yui compressor (potentially replace ShrinkSafe)
   * add setup.py (and make it a normal unix project)
   * add output path (destination directory for build)
   * add clean option (cleans a build directory)
@@ -34,7 +36,7 @@ todo today:
 
 """
 
-__version__ = "0.6"
+__version__ = "0.7"
 
 import os
 import sys
