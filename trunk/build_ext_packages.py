@@ -16,6 +16,7 @@ version history:
   0.5: added options again, more error messages
   0.6: added jspacker
   0.7: fix for python2.3
+  0.7.1: added psyco support (greatly speedsup jsmin)
   
 todo today:
   * restyle entire app
@@ -36,7 +37,9 @@ todo today:
 
 """
 
-__version__ = "0.7"
+__version__ = "0.7.1"
+
+DISABLE_PSYCO = 0
 
 import os
 import sys
@@ -62,6 +65,15 @@ except ImportError:
     except ImportError:
         print "ElementTree not found; u need ElementTree of cElementTree to run this script."
         sys.exit(1)
+
+
+if not DISABLE_PSYCO:
+    try:
+        import psyco
+	m = 2*1024 # 2MB max memory consumpsion limitation
+        psyco.full(memory=m, memorymax=2*m)
+    except ImportError:
+        pass
 
 """ included jsmin, see http://www.crockford.com/javascript/jsmin.py.txt """
 def jsmin(js):
