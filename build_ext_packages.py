@@ -6,6 +6,7 @@ Uses ShrinkSafe (http://dojotoolkit.org/docs/shrinksafe) to do minimization
 of ext-all.js, which in turn requires Java.
 
 (c) 2007, ActiveState
+(c) 2007, IDCA Technologies
     Licensed under the MIT License
     
 version history:
