@@ -18,6 +18,7 @@ version history:
   0.6: added jspacker
   0.7: fix for python2.3
   0.7.1: added psyco support (greatly speedsup jsmin)
+  0.8: added yui-compressor (for javascript and css!!)
   
 todo today:
   * restyle entire app
@@ -25,6 +26,7 @@ todo today:
   * add setup.py (and make it a normal unix project)
   * add output path (destination directory for build)
   * add clean option (cleans a build directory)
+  * add options for choosing what to compress (javascript+css, javascript only, css only)
   * add support for jsdoc (see imported jsdoc source) (check for perl's HTML/Template.pm module)
   * add support for dynamic compression/mimification options
     - 3 methods: jsmin, rhino/dojocompressor, jspacker
@@ -38,12 +40,13 @@ todo today:
 
 """
 
-__version__ = "0.7.1"
+__version__ = "0.8"
 
 DISABLE_PSYCO = 0
 
 import os
 import sys
+import stat
 import shutil
 import tempfile
 import re
@@ -67,7 +70,6 @@ except ImportError:
         print "ElementTree not found; u need ElementTree of cElementTree to run this script."
         sys.exit(1)
 
-
 if not DISABLE_PSYCO:
     try:
         import psyco
@@ -75,6 +77,199 @@ if not DISABLE_PSYCO:
         psyco.full(memory=m, memorymax=2*m)
     except ImportError:
         pass
+
+""" included which, see http://trentm.com/projects/which/ """
+
+#---- exceptions
+
+class WhichError(Exception):
+    pass
+
+#---- internal support stuff
+
+def _getRegisteredExecutable(exeName):
+    """Windows allow application paths to be registered in the registry."""
+    registered = None
+    if sys.platform.startswith('win'):
+        if os.path.splitext(exeName)[1].lower() != '.exe':
+            exeName += '.exe'
+        import _winreg
+        try:
+            key = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" +\
+                  exeName
+            value = _winreg.QueryValue(_winreg.HKEY_LOCAL_MACHINE, key)
+            registered = (value, "from HKLM\\"+key)
+        except _winreg.error:
+            pass
+        if registered and not os.path.exists(registered[0]):
+            registered = None
+    return registered
+
+def _samefile(fname1, fname2):
+    if sys.platform.startswith('win'):
+        return ( os.path.normpath(os.path.normcase(fname1)) ==\
+            os.path.normpath(os.path.normcase(fname2)) )
+    else:
+        return os.path.samefile(fname1, fname2)
+
+def _cull(potential, matches, verbose=0):
+    """Cull inappropriate matches. Possible reasons:
+        - a duplicate of a previous match
+        - not a disk file
+        - not executable (non-Windows)
+    If 'potential' is approved it is returned and added to 'matches'.
+    Otherwise, None is returned.
+    """
+    for match in matches:  # don't yield duplicates
+        if _samefile(potential[0], match[0]):
+            if verbose:
+                sys.stderr.write("duplicate: %s (%s)\n" % potential)
+            return None
+    else:
+        if not stat.S_ISREG(os.stat(potential[0]).st_mode):
+            if verbose:
+                sys.stderr.write("not a regular file: %s (%s)\n" % potential)
+        elif not os.access(potential[0], os.X_OK):
+            if verbose:
+                sys.stderr.write("no executable access: %s (%s)\n"\
+                                 % potential)
+        else:
+            matches.append(potential)
+            return potential
+
+        
+#---- module API
+
+def whichgen(command, path=None, verbose=0, exts=None):
+    """Return a generator of full paths to the given command.
+    
+    "command" is a the name of the executable to search for.
+    "path" is an optional alternate path list to search. The default it
+        to use the PATH environment variable.
+    "verbose", if true, will cause a 2-tuple to be returned for each
+        match. The second element is a textual description of where the
+        match was found.
+    "exts" optionally allows one to specify a list of extensions to use
+        instead of the standard list for this system. This can
+        effectively be used as an optimization to, for example, avoid
+        stat's of "foo.vbs" when searching for "foo" and you know it is
+        not a VisualBasic script but ".vbs" is on PATHEXT. This option
+        is only supported on Windows.
+
+    This method returns a generator which yields either full paths to
+    the given command or, if verbose, tuples of the form (<path to
+    command>, <where path found>).
+    """
+    matches = []
+    if path is None:
+        usingGivenPath = 0
+        path = os.environ.get("PATH", "").split(os.pathsep)
+        if sys.platform.startswith("win"):
+            path.insert(0, os.curdir)  # implied by Windows shell
+    else:
+        usingGivenPath = 1
+
+    # Windows has the concept of a list of extensions (PATHEXT env var).
+    if sys.platform.startswith("win"):
+        if exts is None:
+            exts = os.environ.get("PATHEXT", "").split(os.pathsep)
+            # If '.exe' is not in exts then obviously this is Win9x and
+            # or a bogus PATHEXT, then use a reasonable default.
+            for ext in exts:
+                if ext.lower() == ".exe":
+                    break
+            else:
+                exts = ['.COM', '.EXE', '.BAT']
+        elif not isinstance(exts, list):
+            raise TypeError("'exts' argument must be a list or None")
+    else:
+        if exts is not None:
+            raise WhichError("'exts' argument is not supported on "\
+                             "platform '%s'" % sys.platform)
+        exts = []
+
+    # File name cannot have path separators because PATH lookup does not
+    # work that way.
+    if os.sep in command or os.altsep and os.altsep in command:
+        pass
+    else:
+        for i in range(len(path)):
+            dirName = path[i]
+            # On windows the dirName *could* be quoted, drop the quotes
+            if sys.platform.startswith("win") and len(dirName) >= 2\
+               and dirName[0] == '"' and dirName[-1] == '"':
+                dirName = dirName[1:-1]
+            for ext in ['']+exts:
+                absName = os.path.abspath(
+                    os.path.normpath(os.path.join(dirName, command+ext)))
+                if os.path.isfile(absName):
+                    if usingGivenPath:
+                        fromWhere = "from given path element %d" % i
+                    elif not sys.platform.startswith("win"):
+                        fromWhere = "from PATH element %d" % i
+                    elif i == 0:
+                        fromWhere = "from current directory"
+                    else:
+                        fromWhere = "from PATH element %d" % (i-1)
+                    match = _cull((absName, fromWhere), matches, verbose)
+                    if match:
+                        if verbose:
+                            yield match
+                        else:
+                            yield match[0]
+        match = _getRegisteredExecutable(command)
+        if match is not None:
+            match = _cull(match, matches, verbose)
+            if match:
+                if verbose:
+                    yield match
+                else:
+                    yield match[0]
+
+
+def which(command, path=None, verbose=0, exts=None):
+    """Return the full path to the first match of the given command on
+    the path.
+    
+    "command" is a the name of the executable to search for.
+    "path" is an optional alternate path list to search. The default it
+        to use the PATH environment variable.
+    "verbose", if true, will cause a 2-tuple to be returned. The second
+        element is a textual description of where the match was found.
+    "exts" optionally allows one to specify a list of extensions to use
+        instead of the standard list for this system. This can
+        effectively be used as an optimization to, for example, avoid
+        stat's of "foo.vbs" when searching for "foo" and you know it is
+        not a VisualBasic script but ".vbs" is on PATHEXT. This option
+        is only supported on Windows.
+
+    If no match is found for the command, a WhichError is raised.
+    """
+    try:
+        match = whichgen(command, path, verbose, exts).next()
+    except StopIteration:
+        raise WhichError("Could not find '%s' on the path." % command)
+    return match
+
+
+def whichall(command, path=None, verbose=0, exts=None):
+    """Return a list of full paths to all matches of the given command
+    on the path.  
+
+    "command" is a the name of the executable to search for.
+    "path" is an optional alternate path list to search. The default it
+        to use the PATH environment variable.
+    "verbose", if true, will cause a 2-tuple to be returned for each
+        match. The second element is a textual description of where the
+        match was found.
+    "exts" optionally allows one to specify a list of extensions to use
+        instead of the standard list for this system. This can
+        effectively be used as an optimization to, for example, avoid
+        stat's of "foo.vbs" when searching for "foo" and you know it is
+        not a VisualBasic script but ".vbs" is on PATHEXT. This option
+        is only supported on Windows.
+    """
+    return list( whichgen(command, path, verbose, exts) )
 
 """ included jsmin, see http://www.crockford.com/javascript/jsmin.py.txt """
 def jsmin(js):
@@ -265,8 +460,6 @@ class JavascriptMinify(object):
 ##  Web: http://creativecommons.org/licenses/LGPL/2.1/
 ##
 ##  Ported to Python by Florian Schulze
-
-import os, re
 
 # a multi-pattern parser
 
@@ -741,6 +934,17 @@ class JavaScriptPacker:
         return script
 """ end of jspacker """
 
+try:
+	JAVA_BIN = which("java")
+except WhichError:
+	JAVA_BIN = None
+
+def found_on_classpath(jar):
+    for path in os.environ.get("CLASSPATH", "").split(";"):
+        if path and jar in os.listdir(os.path.abspath(path)):
+            return True
+    return False
+
 def process_jsb(fname, output_dir):
     print "Processing", fname
     rootdir = os.path.dirname(fname)
@@ -774,11 +978,18 @@ def main(ext_root, options):
             if options.shrinksafe:
                 print "Minifying ext-all.js using ShrinkSafe:",
                 sys.stdout.flush()
-                retval = os.system("java -jar custom_rhino.jar -opt -1 -c ext-all-debug.js > ext-all.js")
+                retval = os.system("%s -jar custom_rhino.jar -opt -1 -c ext-all-debug.js > ext-all.js" % JAVA_BIN)
                 if retval != 0:
                     print "..Couldn't create the compressed ext-all.js"
-                    print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
-                    print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
+                    shutil.copy("ext-all-debug.js", "ext-all.js")
+                else:
+                    print "done."
+            if options.yui_compressor:
+                print "Minifying ext-all.js using YUI Compressor:",
+                sys.stdout.flush()
+                retval = os.system("%s -jar yuicompressor-2.1.jar --charset utf8 -o ext-all.js ext-all-debug.js" % JAVA_BIN)
+                if retval != 0:
+                    print "..Couldn't create the compressed ext-all.js"
                     shutil.copy("ext-all-debug.js", "ext-all.js")
                 else:
                     print "done."
@@ -821,19 +1032,17 @@ def main(ext_root, options):
     finally:
         os.chdir(old_cwd)
 
-def found_on_classpath(jar):
-    for path in os.environ.get("CLASSPATH", "").split(";"):
-        if path and jar in os.listdir(os.path.abspath(path)):
-            return True
-    return False
-
 if __name__=="__main__":
     usage = "%prog [options] <root_of_ext_svn_dir>"
     parser = OptionParser(usage=usage, version=__version__)
     parser.add_option("-s", "--shrinksafe", action="store_true", dest="shrinksafe",
-    					default=True, help="Use shrinksafe for packing ext-all.js")
+    					default=False, help="Use shrinksafe for packing ext-all.js")
     parser.add_option("-S", "--no-shrinksafe", action="store_false", dest="shrinksafe",
     					help="Disable shrinksafe")
+    parser.add_option("-y", "--yui-compressor", action="store_true", dest="yui_compressor",
+    					default=True, help="Use YUI compressor for compressing js and css")
+    parser.add_option("-Y", "--no-yui-compressor", action="store_false", dest="yui_compressor",
+    					help="Disable YUI compressor")
     #parser.add_option("-o", "--shrinksafe-opt", action="store", type="string", dest="shrinkopt",
     #					default=-1, help="ShrinkSafe optimalization level")
     parser.add_option("-j", "--jsmin", action="store_true", dest="jsmin",
@@ -849,21 +1058,39 @@ if __name__=="__main__":
     parser.add_option("-f", "--force", action="store_true", dest="force",
        					default=False, help="Force build, keep running even if options fail.")
     
+    
     global options
     (options, args) = parser.parse_args()
     if len(args)!=1:
         parser.print_help()
         sys.exit(0)
-    if options.shrinksafe:
-        rhino = "custom_rhino.jar"
-        if not os.path.isfile(rhino) or not found_on_classpath(rhino):
-	    if options.no_continue:
-        	print "..Failed to find custom_rhine.jar."
-    		print "..Make sure that custom_rhino.jar from http://dojotoolkit.org/docs/shrinksafe"
-    		print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
-    	        sys.exit(1)
-	    else:
-        	print "Failed to find custom_rhine.jar. Disabling ShrinkSafe"
+    
+    if not JAVA_BIN and (options.shrinksafe or options.yui_compressor):
+    	print "Java not found, disabling all enabled java dependencies:",
+	if options.shrinksafe:
 		options.shrinksafe = False
-		
+		print "shrinksafe",
+	if options.yui_compressor:
+		options.yui_compressor = False
+		print "yui-compressor",
+	print
+	
+    def java_check_jar(n, j, errmsg):
+        if not os.path.isfile(os.path.join(os.getcwd(), j)) and not found_on_classpath(j):
+    	    if options.no_continue:
+	    	print "..Failed to find %s." % (j)
+    		print "..Make sure that %s from %s" % (j, errmsg)
+    		print "..is in the java CLASSPATH (or just place it in the Ext root directory)."
+            	sys.exit(1)
+	    else:
+        	print "Failed to find %s. Disabling %s" % (j, n)
+	    return False
+	return True
+	
+    if options.shrinksafe:
+	options.shrinksafe = java_check_jar("shrinksafe", "custom_rhino.jar", "http://dojotoolkit.org/docs/shrinksafe")
+    if options.yui_compressor:
+	options.yui_compressor = java_check_jar("YUI Compressor", "yuicompressor-2.1.jar", "http://www.julienlecomte.net/yuicompressor/")
+			
     main(args[0], options)
+
