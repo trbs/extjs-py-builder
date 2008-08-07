@@ -6,7 +6,7 @@ Uses ShrinkSafe (http://dojotoolkit.org/docs/shrinksafe) to do minimization
 of ext-all.js, which in turn requires Java.
 
 (c) 2007, ActiveState
-(c) 2007, IDCA Technologies
+(c) 2007, 2008, IDCA Technologies
     Licensed under the MIT License
     
 version history:
@@ -19,6 +19,7 @@ version history:
   0.7: fix for python2.3
   0.7.1: added psyco support (greatly speedsup jsmin)
   0.8: added yui-compressor (for javascript and css!!)
+  0.9: fixed import of elementtree for python2.5 (thanks aconran!)
   
 todo today:
   * restyle entire app
@@ -40,7 +41,7 @@ todo today:
 
 """
 
-__version__ = "0.8"
+__version__ = "0.9"
 
 DISABLE_PSYCO = 0
 
@@ -67,8 +68,12 @@ except ImportError:
         from elementtree.ElementTree import ElementTree as ET
         cet = False
     except ImportError:
-        print "ElementTree not found; u need ElementTree of cElementTree to run this script."
-        sys.exit(1)
+	try:
+	    from xml.etree.ElementTree import ElementTree as ET
+	    cet = False
+	except ImportError:
+	    print "ElementTree not found; u need ElementTree of cElementTree to run this script."
+    	    sys.exit(1)
 
 if not DISABLE_PSYCO:
     try:
